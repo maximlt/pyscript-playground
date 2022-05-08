@@ -1,0 +1,71 @@
+<html>
+  <head>
+    <title>CSV to Map</title>
+    <meta charset="iso-8859-1">
+    <link rel="icon" type="image/x-icon" href="./favicon.png">
+    <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-2.4.2.js"></script>
+    <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-2.4.2.min.js"></script>
+    <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-2.4.2.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@holoviz/panel@0.13.0-rc.10/dist/panel.min.js"></script>
+    <link rel="stylesheet" href="https://pyscript.net/alpha/pyscript.css" />
+    <script defer src="https://pyscript.net/alpha/pyscript.js"></script>
+  </head>
+  <body>
+    <py-env>
+      - folium
+      - openpyxl
+      - pandas
+      - panel==0.13.1a2
+    </py-env>
+    <h1>Create an interactive map from any CSV with lat/lon columns</h1>
+    <div id="myapp"></div>
+    <py-script>
+import asyncio
+import io
+
+import folium
+import pandas as pd
+import panel as pn
+
+file_input = pn.widgets.FileInput(accept='.xls,.xlsx')
+
+def folium_map(df):
+    df = df.rename(columns={'longitude': 'lon', 'latitude': 'lat'})
+    center = df[['lon', 'lat']].mean().values.tolist()
+    sw = df[['lat', 'lon']].min().values.tolist()
+    ne = df[['lat', 'lon']].max().values.tolist()
+    lons = df.pop('lon')
+    lats = df.pop('lat')
+    m = folium.Map(center)
+    for i, (lat, lon) in enumerate(zip(lats, lons)):
+        popup = ""
+        popup_data = df.iloc[i].to_dict()
+        for k, v in popup_data.items():
+            popup += f'<i>{k}</i>: {v}<br>'
+        popup = popup or None
+        folium.Marker([lat, lon], popup=popup).add_to(m)
+    m.fit_bounds([sw, ne]) 
+    return m
+
+def create_map(data):
+    if data is None:
+        return pn.pane.Alert('Select a file', alert_type='info')
+    df = pd.read_excel(io.BytesIO(data))
+    df.columns = df.columns.str.lower()
+    err_msg = ""
+    if not any(col in ('lon', 'longitude') for col in df.columns):
+        err_msg += 'Missing longitude data. '
+    if not any(col in ('latitude', 'latitude') for col in df.columns):
+        err_msg += 'Missing latitude data.'
+    if err_msg:
+        return pn.pane.Alert(err_msg, alert_type='warning')
+    fmap = folium_map(df)
+    return pn.pane.plot.Folium(fmap, height=400)
+    
+f = pn.bind(create_map, file_input.param.value)
+col = pn.Column(file_input, f, sizing_mode='stretch_width')
+
+await pn.io.pyodide.show(col, 'myapp')
+    </py-script>
+  </body>
+</html>
